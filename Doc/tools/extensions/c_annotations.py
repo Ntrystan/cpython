@@ -53,10 +53,7 @@ class Annotations(dict):
                     entry = d[function]
                 except KeyError:
                     entry = d[function] = RCEntry(function)
-                if not refcount or refcount == "null":
-                    refcount = None
-                else:
-                    refcount = int(refcount)
+                refcount = None if not refcount or refcount == "null" else int(refcount)
                 # Update the entry with the new parameter or the result
                 # information.
                 if arg:

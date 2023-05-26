@@ -241,10 +241,8 @@ def open(file, mode="r", buffering=-1, encoding=None, errors=None,
             buffer = BufferedRandom(raw, buffering)
         elif creating or writing or appending:
             buffer = BufferedWriter(raw, buffering)
-        elif reading:
-            buffer = BufferedReader(raw, buffering)
         else:
-            raise ValueError("unknown mode: %r" % mode)
+            buffer = BufferedReader(raw, buffering)
         result = buffer
         if binary:
             return result
@@ -349,8 +347,7 @@ class IOBase(metaclass=abc.ABCMeta):
 
     def _unsupported(self, name):
         """Internal: raise an OSError exception for unsupported operations."""
-        raise UnsupportedOperation("%s.%s() not supported" %
-                                   (self.__class__.__name__, name))
+        raise UnsupportedOperation(f"{self.__class__.__name__}.{name}() not supported")
 
     ### Positioning ###
 
@@ -569,10 +566,10 @@ class IOBase(metaclass=abc.ABCMeta):
         return self
 
     def __next__(self):
-        line = self.readline()
-        if not line:
+        if line := self.readline():
+            return line
+        else:
             raise StopIteration
-        return line
 
     def readlines(self, hint=None):
         """Return a list of lines from the stream.
@@ -644,11 +641,7 @@ class RawIOBase(IOBase):
             if not data:
                 break
             res += data
-        if res:
-            return bytes(res)
-        else:
-            # b'' or None
-            return data
+        return bytes(res) if res else data
 
     def readinto(self, b):
         """Read bytes into a pre-allocated bytes-like object b.
@@ -744,10 +737,7 @@ class BufferedIOBase(IOBase):
             b = memoryview(b)
         b = b.cast('B')
 
-        if read1:
-            data = self.read1(len(b))
-        else:
-            data = self.read(len(b))
+        data = self.read1(len(b)) if read1 else self.read(len(b))
         n = len(data)
 
         b[:n] = data
@@ -871,7 +861,7 @@ class _BufferedIOMixin(BufferedIOBase):
         try:
             name = self.name
         except AttributeError:
-            return "<{}.{}>".format(modname, clsname)
+            return f"<{modname}.{clsname}>"
         else:
             return "<{}.{} name={!r}>".format(modname, clsname, name)
 
@@ -1082,10 +1072,7 @@ class BufferedReader(_BufferedIOMixin):
             self._reset_read_buf()
             if hasattr(self.raw, 'readall'):
                 chunk = self.raw.readall()
-                if chunk is None:
-                    return buf[pos:] or None
-                else:
-                    return buf[pos:] + chunk
+                return buf[pos:] or None if chunk is None else buf[pos:] + chunk
             chunks = [buf[pos:]]  # Strip the consumed bytes.
             current_size = 0
             while True:
@@ -1138,8 +1125,7 @@ class BufferedReader(_BufferedIOMixin):
         have = len(self._read_buf) - self._read_pos
         if have < want or have <= 0:
             to_read = self.buffer_size - have
-            current = self.raw.read(to_read)
-            if current:
+            if current := self.raw.read(to_read):
                 self._read_buf = self._read_buf[self._read_pos:] + current
                 self._read_pos = 0
         return self._read_buf[self._read_pos:]
@@ -1178,11 +1164,9 @@ class BufferedReader(_BufferedIOMixin):
         with self._read_lock:
             while written < len(buf):
 
-                # First try to read from internal buffer
-                avail = min(len(self._read_buf) - self._read_pos, len(buf))
-                if avail:
+                if avail := min(len(self._read_buf) - self._read_pos, len(buf)):
                     buf[written:written+avail] = \
-                        self._read_buf[self._read_pos:self._read_pos+avail]
+                            self._read_buf[self._read_pos:self._read_pos+avail]
                     self._read_pos += avail
                     written += avail
                     if written == len(buf):
@@ -1191,14 +1175,12 @@ class BufferedReader(_BufferedIOMixin):
                 # If remaining space in callers buffer is larger than
                 # internal buffer, read directly into callers buffer
                 if len(buf) - written > self.buffer_size:
-                    n = self.raw.readinto(buf[written:])
-                    if not n:
-                        break # eof
-                    written += n
+                    if n := self.raw.readinto(buf[written:]):
+                        written += n
 
-                # Otherwise refill internal buffer - unless we're
-                # in read1 mode and already got some data
-                elif not (read1 and written):
+                    else:
+                        break # eof
+                elif not read1 or not written:
                     if not self._peek_unlocked(1):
                         break # eof
 
@@ -1513,9 +1495,9 @@ class FileIO(RawIOBase):
             fd = -1
 
         if not isinstance(mode, str):
-            raise TypeError('invalid mode: %s' % (mode,))
+            raise TypeError(f'invalid mode: {mode}')
         if not set(mode) <= set('xrwab+'):
-            raise ValueError('invalid mode: %s' % (mode,))
+            raise ValueError(f'invalid mode: {mode}')
         if sum(c in 'rwax' for c in mode) != 1 or mode.count('+') > 1:
             raise ValueError('Must have exactly one of create/read/write/append '
                              'mode and at most one plus')
@@ -1567,8 +1549,7 @@ class FileIO(RawIOBase):
                         raise OSError('Negative file descriptor')
                 owned_fd = fd
                 if not noinherit_flag:
-                    os.set_inheritable(fd, False)
-
+                    os.set_inheritable(owned_fd, False)
             self._closefd = closefd
             fdfstat = os.fstat(fd)
             try:
@@ -1614,10 +1595,9 @@ class FileIO(RawIOBase):
         raise TypeError(f"cannot pickle {self.__class__.__name__!r} object")
 
     def __repr__(self):
-        class_name = '%s.%s' % (self.__class__.__module__,
-                                self.__class__.__qualname__)
+        class_name = f'{self.__class__.__module__}.{self.__class__.__qualname__}'
         if self.closed:
-            return '<%s [closed]>' % class_name
+            return f'<{class_name} [closed]>'
         try:
             name = self.name
         except AttributeError:
@@ -1798,20 +1778,11 @@ class FileIO(RawIOBase):
     def mode(self):
         """String giving the file mode"""
         if self._created:
-            if self._readable:
-                return 'xb+'
-            else:
-                return 'xb'
+            return 'xb+' if self._readable else 'xb'
         elif self._appending:
-            if self._readable:
-                return 'ab+'
-            else:
-                return 'ab'
+            return 'ab+' if self._readable else 'ab'
         elif self._readable:
-            if self._writable:
-                return 'rb+'
-            else:
-                return 'rb'
+            return 'rb+' if self._writable else 'rb'
         else:
             return 'wb'
 
@@ -2009,14 +1980,14 @@ class TextIOWrapper(TextIOBase):
                 encoding = os.device_encoding(buffer.fileno())
             except (AttributeError, UnsupportedOperation):
                 pass
-            if encoding is None:
-                try:
-                    import locale
-                except ImportError:
-                    # Importing locale may fail if Python is being built
-                    encoding = "ascii"
-                else:
-                    encoding = locale.getpreferredencoding(False)
+        if encoding is None:
+            try:
+                import locale
+            except ImportError:
+                # Importing locale may fail if Python is being built
+                encoding = "ascii"
+            else:
+                encoding = locale.getpreferredencoding(False)
 
         if not isinstance(encoding, str):
             raise ValueError("invalid encoding: %r" % encoding)
@@ -2086,8 +2057,7 @@ class TextIOWrapper(TextIOBase):
     #   - "chars_..." for integer variables that count decoded characters
 
     def __repr__(self):
-        result = "<{}.{}".format(self.__class__.__module__,
-                                 self.__class__.__qualname__)
+        result = f"<{self.__class__.__module__}.{self.__class__.__qualname__}"
         try:
             name = self.name
         except AttributeError:
@@ -2137,18 +2107,14 @@ class TextIOWrapper(TextIOBase):
                 "after the first read")
 
         if errors is None:
-            if encoding is None:
-                errors = self._errors
-            else:
-                errors = 'strict'
+            errors = self._errors if encoding is None else 'strict'
         elif not isinstance(errors, str):
             raise TypeError("invalid errors: %r" % errors)
 
         if encoding is None:
             encoding = self._encoding
-        else:
-            if not isinstance(encoding, str):
-                raise TypeError("invalid encoding: %r" % encoding)
+        elif not isinstance(encoding, str):
+            raise TypeError("invalid encoding: %r" % encoding)
 
         if newline is Ellipsis:
             newline = self._readnl
@@ -2204,8 +2170,7 @@ class TextIOWrapper(TextIOBase):
         if self.closed:
             raise ValueError("write to closed file")
         if not isinstance(s, str):
-            raise TypeError("can't write %s to text stream" %
-                            s.__class__.__name__)
+            raise TypeError(f"can't write {s.__class__.__name__} to text stream")
         length = len(s)
         haslf = (self._writetranslate or self._line_buffering) and "\n" in s
         if haslf and self._writetranslate and self._writenl != "\n":
@@ -2524,7 +2489,6 @@ class TextIOWrapper(TextIOBase):
                       decoder.decode(self.buffer.read(), final=True))
             self._set_decoded_chars('')
             self._snapshot = None
-            return result
         else:
             # Keep reading chunks until we have size characters to return.
             eof = False
@@ -2532,7 +2496,8 @@ class TextIOWrapper(TextIOBase):
             while len(result) < size and not eof:
                 eof = not self._read_chunk()
                 result += self._get_decoded_chars(size - len(result))
-            return result
+
+        return result
 
     def __next__(self):
         self._telling = False

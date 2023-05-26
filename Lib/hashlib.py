@@ -120,7 +120,7 @@ def __get_builtin_constructor(name):
     if constructor is not None:
         return constructor
 
-    raise ValueError('unsupported hash type ' + name)
+    raise ValueError(f'unsupported hash type {name}')
 
 
 def __get_openssl_constructor(name):
@@ -130,7 +130,7 @@ def __get_openssl_constructor(name):
     try:
         # MD5, SHA1, and SHA2 are in all supported OpenSSL versions
         # SHA3/shake are available in OpenSSL 1.1.1+
-        f = getattr(_hashlib, 'openssl_' + name)
+        f = getattr(_hashlib, f'openssl_{name}')
         # Allow the C module to raise ValueError.  The function will be
         # defined but the hash not actually available.  Don't fall back to
         # builtin if the current security policy blocks a digest, bpo#40695.

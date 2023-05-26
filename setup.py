@@ -52,9 +52,7 @@ def get_platform():
         return os.environ["_PYTHON_HOST_PLATFORM"]
 
     # Get value of sys.platform
-    if sys.platform.startswith('osf1'):
-        return 'osf1'
-    return sys.platform
+    return 'osf1' if sys.platform.startswith('osf1') else sys.platform
 
 
 CROSS_COMPILING = ("_PYTHON_HOST_PLATFORM" in os.environ)
@@ -106,7 +104,7 @@ def run_command(cmd):
 def set_compiler_flags(compiler_flags, compiler_py_flags_nodist):
     flags = sysconfig.get_config_var(compiler_flags)
     py_flags_nodist = sysconfig.get_config_var(compiler_py_flags_nodist)
-    sysconfig.get_config_vars()[compiler_flags] = flags + ' ' + py_flags_nodist
+    sysconfig.get_config_vars()[compiler_flags] = f'{flags} {py_flags_nodist}'
 
 
 def add_dir_to_list(dirlist, dir):
@@ -140,7 +138,7 @@ def sysroot_paths(make_vars, subdirs):
         if var is not None:
             m = re.search(r'--sysroot=([^"]\S*|"[^"]+")', var)
             if m is not None:
-                sysroot = m.group(1).strip('"')
+                sysroot = m[1].strip('"')
                 for subdir in subdirs:
                     if os.path.isabs(subdir):
                         subdir = subdir[1:]
@@ -175,7 +173,7 @@ def macosx_sdk_root():
     cflags = sysconfig.get_config_var('CFLAGS')
     m = re.search(r'-isysroot\s*(\S+)', cflags)
     if m is not None:
-        MACOS_SDK_ROOT = m.group(1)
+        MACOS_SDK_ROOT = m[1]
         MACOS_SDK_SPECIFIED = MACOS_SDK_ROOT != '/'
     else:
         MACOS_SDK_ROOT = '/'
@@ -186,12 +184,12 @@ def macosx_sdk_root():
             os.unlink(tmpfile)
         except:
             pass
-        ret = run_command('%s -E -v - </dev/null 2>%s 1>/dev/null' % (cc, tmpfile))
+        ret = run_command(f'{cc} -E -v - </dev/null 2>{tmpfile} 1>/dev/null')
         in_incdirs = False
         try:
             if ret == 0:
                 with open(tmpfile) as fp:
-                    for line in fp.readlines():
+                    for line in fp:
                         if line.startswith("#include <...>"):
                             in_incdirs = True
                         elif line.startswith("End of search list"):
@@ -337,11 +335,13 @@ def validate_tzpath():
         return
 
     tzpaths = base_tzpath.split(os.pathsep)
-    bad_paths = [tzpath for tzpath in tzpaths if not os.path.isabs(tzpath)]
-    if bad_paths:
-        raise ValueError('TZPATH must contain only absolute paths, '
-                         + f'found:\n{tzpaths!r}\nwith invalid paths:\n'
-                         + f'{bad_paths!r}')
+    if bad_paths := [
+        tzpath for tzpath in tzpaths if not os.path.isabs(tzpath)
+    ]:
+        raise ValueError(
+            f'TZPATH must contain only absolute paths, found:\n{tzpaths!r}\nwith invalid paths:\n'
+            + f'{bad_paths!r}'
+        )
 
 def find_module_file(module, dirlist):
     """Find a module in a set of possible folders. If it is not found
@@ -384,7 +384,7 @@ class PyBuildExt(build_ext):
         extensions = [ext for ext in self.extensions
                       if ext.name not in DISABLED_MODULE_LIST]
         # move ctypes to the end, it depends on other modules
-        ext_map = dict((ext.name, i) for i, ext in enumerate(extensions))
+        ext_map = {ext.name: i for i, ext in enumerate(extensions)}
         if "_ctypes" in ext_map:
             ctypes = extensions.pop(ext_map["_ctypes"])
             extensions.append(ctypes)
@@ -431,8 +431,7 @@ class PyBuildExt(build_ext):
             if ext.name in sysconf_dis:
                 mods_disabled.append(ext)
 
-        mods_configured = mods_built + mods_disabled
-        if mods_configured:
+        if mods_configured := mods_built + mods_disabled:
             self.extensions = [x for x in self.extensions if x not in
                                mods_configured]
             # Remove the shared libraries built by a previous build.
@@ -453,7 +452,7 @@ class PyBuildExt(build_ext):
         # compilers
         if compiler is not None:
             (ccshared,cflags) = sysconfig.get_config_vars('CCSHARED','CFLAGS')
-            args['compiler_so'] = compiler + ' ' + ccshared + ' ' + cflags
+            args['compiler_so'] = f'{compiler} {ccshared} {cflags}'
         self.compiler.set_executables(**args)
 
     def build_extensions(self):
@@ -481,10 +480,10 @@ class PyBuildExt(build_ext):
         self.summary(mods_built, mods_disabled)
 
     def summary(self, mods_built, mods_disabled):
-        longest = max([len(e.name) for e in self.extensions], default=0)
+        longest = max((len(e.name) for e in self.extensions), default=0)
         if self.failed or self.failed_on_import:
             all_failed = self.failed + self.failed_on_import
-            longest = max(longest, max([len(name) for name in all_failed]))
+            longest = max(longest, max(len(name) for name in all_failed))
 
         def print_three_column(lst):
             lst.sort(key=str.lower)
@@ -565,8 +564,7 @@ class PyBuildExt(build_ext):
         try:
             build_ext.build_extension(self, ext)
         except (CCompilerError, DistutilsError) as why:
-            self.announce('WARNING: building of extension "%s" failed: %s' %
-                          (ext.name, why))
+            self.announce(f'WARNING: building of extension "{ext.name}" failed: {why}')
             self.failed.append(ext.name)
             return
 
@@ -574,16 +572,15 @@ class PyBuildExt(build_ext):
         # Don't try to import an extension that has failed to compile
         if ext.name in self.failed:
             self.announce(
-                'WARNING: skipping import check for failed build "%s"' %
-                ext.name, level=1)
+                f'WARNING: skipping import check for failed build "{ext.name}"',
+                level=1,
+            )
             return
 
         # Workaround for Mac OS X: The Carbon-based modules cannot be
         # reliably imported into a command-line Python
         if 'Carbon' in ext.extra_link_args:
-            self.announce(
-                'WARNING: skipping import check for Carbon-based "%s"' %
-                ext.name)
+            self.announce(f'WARNING: skipping import check for Carbon-based "{ext.name}"')
             return
 
         if MACOS and (
@@ -593,16 +590,13 @@ class PyBuildExt(build_ext):
             # only used to build 32-bit only extensions in a 4-way
             # universal build and loading 32-bit code into a 64-bit
             # process will fail.
-            self.announce(
-                'WARNING: skipping import check for "%s"' %
-                ext.name)
+            self.announce(f'WARNING: skipping import check for "{ext.name}"')
             return
 
         # Workaround for Cygwin: Cygwin currently has fork issues when many
         # modules have been imported
         if CYGWIN:
-            self.announce('WARNING: skipping import check for Cygwin-based "%s"'
-                % ext.name)
+            self.announce(f'WARNING: skipping import check for Cygwin-based "{ext.name}"')
             return
         ext_filename = os.path.join(
             self.build_lib,
@@ -628,7 +622,7 @@ class PyBuildExt(build_ext):
                           ' failed: %s' % (ext.name, why), level=3)
             assert not self.inplace
             basename, tail = os.path.splitext(ext_filename)
-            newname = basename + "_failed" + tail
+            newname = f"{basename}_failed{tail}"
             if os.path.exists(newname):
                 os.remove(newname)
             os.rename(ext_filename, newname)
@@ -647,8 +641,7 @@ class PyBuildExt(build_ext):
         tmpfile = os.path.join(self.build_temp, 'multiarch')
         if not os.path.exists(self.build_temp):
             os.makedirs(self.build_temp)
-        ret = run_command(
-            '%s -print-multiarch > %s 2> /dev/null' % (cc, tmpfile))
+        ret = run_command(f'{cc} -print-multiarch > {tmpfile} 2> /dev/null')
         multiarch_path_component = ''
         try:
             if ret == 0:
@@ -658,10 +651,13 @@ class PyBuildExt(build_ext):
             os.unlink(tmpfile)
 
         if multiarch_path_component != '':
-            add_dir_to_list(self.compiler.library_dirs,
-                            '/usr/lib/' + multiarch_path_component)
-            add_dir_to_list(self.compiler.include_dirs,
-                            '/usr/include/' + multiarch_path_component)
+            add_dir_to_list(
+                self.compiler.library_dirs, f'/usr/lib/{multiarch_path_component}'
+            )
+            add_dir_to_list(
+                self.compiler.include_dirs,
+                f'/usr/include/{multiarch_path_component}',
+            )
             return
 
         if not find_executable('dpkg-architecture'):
@@ -673,16 +669,20 @@ class PyBuildExt(build_ext):
         if not os.path.exists(self.build_temp):
             os.makedirs(self.build_temp)
         ret = run_command(
-            'dpkg-architecture %s -qDEB_HOST_MULTIARCH > %s 2> /dev/null' %
-            (opt, tmpfile))
+            f'dpkg-architecture {opt} -qDEB_HOST_MULTIARCH > {tmpfile} 2> /dev/null'
+        )
         try:
             if ret == 0:
                 with open(tmpfile) as fp:
                     multiarch_path_component = fp.readline().strip()
-                add_dir_to_list(self.compiler.library_dirs,
-                                '/usr/lib/' + multiarch_path_component)
-                add_dir_to_list(self.compiler.include_dirs,
-                                '/usr/include/' + multiarch_path_component)
+                add_dir_to_list(
+                    self.compiler.library_dirs,
+                    f'/usr/lib/{multiarch_path_component}',
+                )
+                add_dir_to_list(
+                    self.compiler.include_dirs,
+                    f'/usr/include/{multiarch_path_component}',
+                )
         finally:
             os.unlink(tmpfile)
 
@@ -691,14 +691,14 @@ class PyBuildExt(build_ext):
         tmpfile = os.path.join(self.build_temp, 'ccpaths')
         if not os.path.exists(self.build_temp):
             os.makedirs(self.build_temp)
-        ret = run_command('%s -E -v - </dev/null 2>%s 1>/dev/null' % (cc, tmpfile))
+        ret = run_command(f'{cc} -E -v - </dev/null 2>{tmpfile} 1>/dev/null')
         is_gcc = False
         is_clang = False
         in_incdirs = False
         try:
             if ret == 0:
                 with open(tmpfile) as fp:
-                    for line in fp.readlines():
+                    for line in fp:
                         if line.startswith("gcc version"):
                             is_gcc = True
                         elif line.startswith("clang version"):
@@ -730,8 +730,7 @@ class PyBuildExt(build_ext):
                 ('LDFLAGS', '-R', self.compiler.runtime_library_dirs),
                 ('LDFLAGS', '-L', self.compiler.library_dirs),
                 ('CPPFLAGS', '-I', self.compiler.include_dirs)):
-            env_val = sysconfig.get_config_var(env_var)
-            if env_val:
+            if env_val := sysconfig.get_config_var(env_var):
                 parser = argparse.ArgumentParser()
                 parser.add_argument(arg_name, dest="dirs", action="append")
                 options, _ = parser.parse_known_args(env_val.split())
@@ -843,8 +842,7 @@ class PyBuildExt(build_ext):
 
         # time libraries: librt may be needed for clock_gettime()
         time_libs = []
-        lib = sysconfig.get_config_var('TIMEMODULE_LIB')
-        if lib:
+        if lib := sysconfig.get_config_var('TIMEMODULE_LIB'):
             time_libs.append(lib)
 
         # time operations and variables
@@ -891,15 +889,7 @@ class PyBuildExt(build_ext):
         # _statistics module
         self.add(Extension("_statistics", ["_statisticsmodule.c"]))
 
-        # Modules with some UNIX dependencies -- on by default:
-        # (If you have a really backward UNIX, select and socket may not be
-        # supported...)
-
-        # fcntl(2) and ioctl(2)
-        libs = []
-        if (self.config_h_vars.get('FLOCK_NEEDS_LIBBSD', False)):
-            # May be necessary on AIX for flock function
-            libs = ['bsd']
+        libs = ['bsd'] if (self.config_h_vars.get('FLOCK_NEEDS_LIBBSD', False)) else []
         self.add(Extension('fcntl', ['fcntlmodule.c'],
                            libraries=libs))
         # pwd(3)
@@ -987,11 +977,11 @@ class PyBuildExt(build_ext):
         # Determine if readline is already linked against curses or tinfo.
         if do_readline:
             if CROSS_COMPILING:
-                ret = run_command("%s -d %s | grep '(NEEDED)' > %s"
-                                % (sysconfig.get_config_var('READELF'),
-                                   do_readline, tmpfile))
+                ret = run_command(
+                    f"{sysconfig.get_config_var('READELF')} -d {do_readline} | grep '(NEEDED)' > {tmpfile}"
+                )
             elif find_executable('ldd'):
-                ret = run_command("ldd %s > %s" % (do_readline, tmpfile))
+                ret = run_command(f"ldd {do_readline} > {tmpfile}")
             else:
                 ret = 1
             if ret == 0:
@@ -1026,14 +1016,12 @@ class PyBuildExt(build_ext):
         if MACOS:
             os_release = int(os.uname()[2].split('.')[0])
             dep_target = sysconfig.get_config_var('MACOSX_DEPLOYMENT_TARGET')
-            if (dep_target and
-                    (tuple(int(n) for n in dep_target.split('.')[0:2])
-                        < (10, 5) ) ):
+            if dep_target and tuple(int(n) for n in dep_target.split('.')[:2]) < (
+                10,
+                5,
+            ):
                 os_release = 8
             if os_release < 9:
-                # MacOSX 10.4 has a broken readline. Don't try to build
-                # the readline module unless the user has installed a fixed
-                # readline package
                 if find_file('readline/rlconf.h', self.inc_dirs, []) is None:
                     do_readline = False
         if do_readline:
@@ -1084,10 +1072,9 @@ class PyBuildExt(build_ext):
                 # ncurses wide char support
                 curses_defines.append(('_XOPEN_SOURCE_EXTENDED', '1'))
         elif MACOS and curses_library == 'ncurses':
-            # Building with the system-suppied combined libncurses/libpanel
-            curses_defines.append(('HAVE_NCURSESW', '1'))
-            curses_defines.append(('_XOPEN_SOURCE_EXTENDED', '1'))
-
+            curses_defines.extend(
+                (('HAVE_NCURSESW', '1'), ('_XOPEN_SOURCE_EXTENDED', '1'))
+            )
         curses_enabled = True
         if curses_library.startswith('ncurses'):
             curses_libs = [curses_library]
@@ -1114,7 +1101,7 @@ class PyBuildExt(build_ext):
 
         # If the curses module is enabled, check for the panel module
         # _curses_panel needs some form of ncurses
-        skip_curses_panel = True if AIX else False
+        skip_curses_panel = bool(AIX)
         if (curses_enabled and not skip_curses_panel and
                 self.compiler.find_library_file(self.lib_dirs, panel_library)):
             self.add(Extension('_curses_panel', ['_curses_panel.c'],
