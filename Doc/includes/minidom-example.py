@@ -19,10 +19,7 @@ document = """\
 dom = xml.dom.minidom.parseString(document)
 
 def getText(nodelist):
-    rc = []
-    for node in nodelist:
-        if node.nodeType == node.TEXT_NODE:
-            rc.append(node.data)
+    rc = [node.data for node in nodelist if node.nodeType == node.TEXT_NODE]
     return ''.join(rc)
 
 def handleSlideshow(slideshow):
@@ -42,10 +39,10 @@ def handleSlide(slide):
     handlePoints(slide.getElementsByTagName("point"))
 
 def handleSlideshowTitle(title):
-    print("<title>%s</title>" % getText(title.childNodes))
+    print(f"<title>{getText(title.childNodes)}</title>")
 
 def handleSlideTitle(title):
-    print("<h2>%s</h2>" % getText(title.childNodes))
+    print(f"<h2>{getText(title.childNodes)}</h2>")
 
 def handlePoints(points):
     print("<ul>")
@@ -54,11 +51,11 @@ def handlePoints(points):
     print("</ul>")
 
 def handlePoint(point):
-    print("<li>%s</li>" % getText(point.childNodes))
+    print(f"<li>{getText(point.childNodes)}</li>")
 
 def handleToc(slides):
     for slide in slides:
         title = slide.getElementsByTagName("title")[0]
-        print("<p>%s</p>" % getText(title.childNodes))
+        print(f"<p>{getText(title.childNodes)}</p>")
 
 handleSlideshow(dom)

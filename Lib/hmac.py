@@ -94,7 +94,7 @@ class HMAC:
 
     @property
     def name(self):
-        return "hmac-" + self._inner.name
+        return f"hmac-{self._inner.name}"
 
     @property
     def digest_cons(self):

@@ -37,9 +37,7 @@ from types import GenericAlias
 Match = _namedtuple('Match', 'a b size')
 
 def _calculate_ratio(matches, length):
-    if length:
-        return 2.0 * matches / length
-    return 1.0
+    return 2.0 * matches / length if length else 1.0
 
 class SequenceMatcher:
 
@@ -315,9 +313,8 @@ class SequenceMatcher:
 
         # Purge junk elements
         self.bjunk = junk = set()
-        isjunk = self.isjunk
-        if isjunk:
-            for elt in b2j.keys():
+        if isjunk := self.isjunk:
+            for elt in b2j:
                 if isjunk(elt):
                     junk.add(elt)
             for elt in junk: # separate loop avoids separate list of keys
@@ -623,7 +620,7 @@ class SequenceMatcher:
                 group = []
                 i1, j1 = max(i1, i2-n), max(j1, j2-n)
             group.append((tag, i1, i2, j1 ,j2))
-        if group and not (len(group)==1 and group[0][0] == 'equal'):
+        if group and (len(group) != 1 or group[0][0] != 'equal'):
             yield group
 
     def ratio(self):
@@ -671,10 +668,7 @@ class SequenceMatcher:
         avail = {}
         availhas, matches = avail.__contains__, 0
         for elt in self.a:
-            if availhas(elt):
-                numb = avail[elt]
-            else:
-                numb = fullbcount.get(elt, 0)
+            numb = avail[elt] if availhas(elt) else fullbcount.get(elt, 0)
             avail[elt] = numb - 1
             if numb > 0:
                 matches = matches + 1
@@ -724,7 +718,7 @@ def get_close_matches(word, possibilities, n=3, cutoff=0.6):
     ['except']
     """
 
-    if not n >  0:
+    if n <= 0:
         raise ValueError("n must be > 0: %r" % (n,))
     if not 0.0 <= cutoff <= 1.0:
         raise ValueError("cutoff must be in [0.0, 1.0]: %r" % (cutoff,))
@@ -914,7 +908,7 @@ class Differ:
     def _dump(self, tag, x, lo, hi):
         """Generate comparison results for a same-tagged range."""
         for i in range(lo, hi):
-            yield '%s %s' % (tag, x[i])
+            yield f'{tag} {x[i]}'
 
     def _plain_replace(self, a, alo, ahi, b, blo, bhi):
         assert alo < ahi and blo < bhi
@@ -975,8 +969,8 @@ class Differ:
                 # time it's called on a sequence pair; the expensive part
                 # of the computation is cached by cruncher
                 if cruncher.real_quick_ratio() > best_ratio and \
-                      cruncher.quick_ratio() > best_ratio and \
-                      cruncher.ratio() > best_ratio:
+                          cruncher.quick_ratio() > best_ratio and \
+                          cruncher.ratio() > best_ratio:
                     best_ratio, best_i, best_j = cruncher.ratio(), i, j
         if best_ratio < cutoff:
             # no non-identical "pretty close" pair
@@ -1019,7 +1013,7 @@ class Differ:
             yield from self._qformat(aelt, belt, atags, btags)
         else:
             # the synch pair is identical
-            yield '  ' + aelt
+            yield f'  {aelt}'
 
         # pump out diffs from after the synch point
         yield from self._fancy_helper(a, best_i+1, ahi, b, best_j+1, bhi)
@@ -1055,11 +1049,11 @@ class Differ:
         atags = _keep_original_ws(aline, atags).rstrip()
         btags = _keep_original_ws(bline, btags).rstrip()
 
-        yield "- " + aline
+        yield f"- {aline}"
         if atags:
             yield f"? {atags}\n"
 
-        yield "+ " + bline
+        yield f"+ {bline}"
         if btags:
             yield f"? {btags}\n"
 
@@ -1127,10 +1121,10 @@ def _format_range_unified(start, stop):
     beginning = start + 1     # lines start numbering with one
     length = stop - start
     if length == 1:
-        return '{}'.format(beginning)
+        return f'{beginning}'
     if not length:
         beginning -= 1        # empty ranges begin at line just before the range
-    return '{},{}'.format(beginning, length)
+    return f'{beginning},{length}'
 
 def unified_diff(a, b, fromfile='', tofile='', fromfiledate='',
                  tofiledate='', n=3, lineterm='\n'):
@@ -1178,27 +1172,27 @@ def unified_diff(a, b, fromfile='', tofile='', fromfiledate='',
     for group in SequenceMatcher(None,a,b).get_grouped_opcodes(n):
         if not started:
             started = True
-            fromdate = '\t{}'.format(fromfiledate) if fromfiledate else ''
-            todate = '\t{}'.format(tofiledate) if tofiledate else ''
-            yield '--- {}{}{}'.format(fromfile, fromdate, lineterm)
-            yield '+++ {}{}{}'.format(tofile, todate, lineterm)
+            fromdate = f'\t{fromfiledate}' if fromfiledate else ''
+            todate = f'\t{tofiledate}' if tofiledate else ''
+            yield f'--- {fromfile}{fromdate}{lineterm}'
+            yield f'+++ {tofile}{todate}{lineterm}'
 
         first, last = group[0], group[-1]
         file1_range = _format_range_unified(first[1], last[2])
         file2_range = _format_range_unified(first[3], last[4])
-        yield '@@ -{} +{} @@{}'.format(file1_range, file2_range, lineterm)
+        yield f'@@ -{file1_range} +{file2_range} @@{lineterm}'
 
         for tag, i1, i2, j1, j2 in group:
             if tag == 'equal':
                 for line in a[i1:i2]:
-                    yield ' ' + line
+                    yield f' {line}'
                 continue
             if tag in {'replace', 'delete'}:
                 for line in a[i1:i2]:
-                    yield '-' + line
+                    yield f'-{line}'
             if tag in {'replace', 'insert'}:
                 for line in b[j1:j2]:
-                    yield '+' + line
+                    yield f'+{line}'
 
 
 ########################################################################
@@ -1213,8 +1207,8 @@ def _format_range_context(start, stop):
     if not length:
         beginning -= 1        # empty ranges begin at line just before the range
     if length <= 1:
-        return '{}'.format(beginning)
-    return '{},{}'.format(beginning, beginning + length - 1)
+        return f'{beginning}'
+    return f'{beginning},{beginning + length - 1}'
 
 # See http://www.unix.org/single_unix_specification/
 def context_diff(a, b, fromfile='', tofile='',
@@ -1267,16 +1261,16 @@ def context_diff(a, b, fromfile='', tofile='',
     for group in SequenceMatcher(None,a,b).get_grouped_opcodes(n):
         if not started:
             started = True
-            fromdate = '\t{}'.format(fromfiledate) if fromfiledate else ''
-            todate = '\t{}'.format(tofiledate) if tofiledate else ''
-            yield '*** {}{}{}'.format(fromfile, fromdate, lineterm)
-            yield '--- {}{}{}'.format(tofile, todate, lineterm)
+            fromdate = f'\t{fromfiledate}' if fromfiledate else ''
+            todate = f'\t{tofiledate}' if tofiledate else ''
+            yield f'*** {fromfile}{fromdate}{lineterm}'
+            yield f'--- {tofile}{todate}{lineterm}'
 
         first, last = group[0], group[-1]
-        yield '***************' + lineterm
+        yield f'***************{lineterm}'
 
         file1_range = _format_range_context(first[1], last[2])
-        yield '*** {} ****{}'.format(file1_range, lineterm)
+        yield f'*** {file1_range} ****{lineterm}'
 
         if any(tag in {'replace', 'delete'} for tag, _, _, _, _ in group):
             for tag, i1, i2, _, _ in group:
@@ -1285,7 +1279,7 @@ def context_diff(a, b, fromfile='', tofile='',
                         yield prefix[tag] + line
 
         file2_range = _format_range_context(first[3], last[4])
-        yield '--- {} ----{}'.format(file2_range, lineterm)
+        yield f'--- {file2_range} ----{lineterm}'
 
         if any(tag in {'replace', 'insert'} for tag, _, _, _, _ in group):
             for tag, _, _, j1, j2 in group:
@@ -1455,13 +1449,13 @@ def _mdiff(fromlines, tolines, context=None, linejunk=None,
             def record_sub_info(match_object,sub_info=sub_info):
                 sub_info.append([match_object.group(1)[0],match_object.span()])
                 return match_object.group(1)
+
             change_re.sub(record_sub_info,markers)
             # process each tuple inserting our special marks that won't be
             # noticed by an xml/html escaper.
             for key,(begin,end) in reversed(sub_info):
-                text = text[0:begin]+'\0'+key+text[begin:end]+'\1'+text[end:]
+                text = text[:begin] + '\0' + key + text[begin:end] + '\1' + text[end:]
             text = text[2:]
-        # Handle case of add/delete entire line
         else:
             text = lines.pop(0)[2:]
             # if line of text is just a newline, insert a space so there is
@@ -1580,7 +1574,7 @@ def _mdiff(fromlines, tolines, context=None, linejunk=None,
         fromlines,tolines=[],[]
         while True:
             # Collecting lines of text until we have a from/to pair
-            while (len(fromlines)==0 or len(tolines)==0):
+            while not fromlines or not tolines:
                 try:
                     from_line, to_line, found_diff = next(line_iterator)
                 except StopIteration:
@@ -1599,8 +1593,6 @@ def _mdiff(fromlines, tolines, context=None, linejunk=None,
     line_pair_iterator = _line_pair_iterator()
     if context is None:
         yield from line_pair_iterator
-    # Handle case where user wants context differencing.  We must do some
-    # storage of lines until we know for sure that they are to be yielded.
     else:
         context += 1
         lines_to_write = 0
@@ -1610,7 +1602,7 @@ def _mdiff(fromlines, tolines, context=None, linejunk=None,
             # we need for context.
             index, contextLines = 0, [None]*(context)
             found_diff = False
-            while(found_diff is False):
+            while not found_diff:
                 try:
                     from_line, to_line, found_diff = next(line_pair_iterator)
                 except StopIteration:
@@ -1822,14 +1814,12 @@ class HtmlDiff(object):
             if text[i] == '\0':
                 i += 1
                 mark = text[i]
-                i += 1
             elif text[i] == '\1':
-                i += 1
                 mark = ''
             else:
-                i += 1
                 n += 1
 
+            i += 1
         # wrap point is inside text, break it up into separate lines
         line1 = text[:i]
         line2 = text[i:]
@@ -1865,14 +1855,8 @@ class HtmlDiff(object):
             # yield from/to line in pairs inserting blank lines as
             # necessary when one side has more wrapped lines
             while fromlist or tolist:
-                if fromlist:
-                    fromdata = fromlist.pop(0)
-                else:
-                    fromdata = ('',' ')
-                if tolist:
-                    todata = tolist.pop(0)
-                else:
-                    todata = ('',' ')
+                fromdata = fromlist.pop(0) if fromlist else ('', ' ')
+                todata = tolist.pop(0) if tolist else ('', ' ')
                 yield fromdata,todata,flag
 
     def _collect_lines(self,diffs):
@@ -1906,7 +1890,7 @@ class HtmlDiff(object):
         """
         try:
             linenum = '%d' % linenum
-            id = ' id="%s%s"' % (self._prefix[side],linenum)
+            id = f' id="{self._prefix[side]}{linenum}"'
         except TypeError:
             # handle blank lines where linenum is '>' or ''
             id = ''
@@ -1916,8 +1900,7 @@ class HtmlDiff(object):
         # make space non-breakable so they don't get compressed or line wrapped
         text = text.replace(' ','&nbsp;').rstrip()
 
-        return '<td class="diff_header"%s>%s</td><td nowrap="nowrap">%s</td>' \
-               % (id,linenum,text)
+        return f'<td class="diff_header"{id}>{linenum}</td><td nowrap="nowrap">{text}</td>'
 
     def _make_prefix(self):
         """Create unique anchor prefixes"""
@@ -1971,9 +1954,9 @@ class HtmlDiff(object):
                 fromlist = tolist = ['<td></td><td>&nbsp;Empty File&nbsp;</td>']
         # if not a change on first line, drop a link
         if not flaglist[0]:
-            next_href[0] = '<a href="#difflib_chg_%s_0">f</a>' % toprefix
+            next_href[0] = f'<a href="#difflib_chg_{toprefix}_0">f</a>'
         # redo the last link to link to the top
-        next_href[last] = '<a href="#difflib_chg_%s_top">t</a>' % (toprefix)
+        next_href[last] = f'<a href="#difflib_chg_{toprefix}_top">t</a>'
 
         return fromlist,tolist,flaglist,next_href,next_id
 
@@ -2004,10 +1987,7 @@ class HtmlDiff(object):
         fromlines,tolines = self._tab_newline_replace(fromlines,tolines)
 
         # create diffs iterator which generates side by side from/to data
-        if context:
-            context_lines = numlines
-        else:
-            context_lines = None
+        context_lines = numlines if context else None
         diffs = _mdiff(fromlines,tolines,context_lines,linejunk=self._linejunk,
                       charjunk=self._charjunk)
 
@@ -2024,7 +2004,7 @@ class HtmlDiff(object):
 
         s = []
         fmt = '            <tr><td class="diff_next"%s>%s</td>%s' + \
-              '<td class="diff_next">%s</td>%s</tr>\n'
+                  '<td class="diff_next">%s</td>%s</tr>\n'
         for i in range(len(flaglist)):
             if flaglist[i] is None:
                 # mdiff yields None on separator lines skip the bogus ones
@@ -2035,11 +2015,7 @@ class HtmlDiff(object):
                 s.append( fmt % (next_id[i],next_href[i],fromlist[i],
                                            next_href[i],tolist[i]))
         if fromdesc or todesc:
-            header_row = '<thead><tr>%s%s%s%s</tr></thead>' % (
-                '<th class="diff_next"><br /></th>',
-                '<th colspan="2" class="diff_header">%s</th>' % fromdesc,
-                '<th class="diff_next"><br /></th>',
-                '<th colspan="2" class="diff_header">%s</th>' % todesc)
+            header_row = f'<thead><tr><th class="diff_next"><br /></th><th colspan="2" class="diff_header">{fromdesc}</th><th class="diff_next"><br /></th><th colspan="2" class="diff_header">{todesc}</th></tr></thead>'
         else:
             header_row = ''
 
@@ -2049,10 +2025,10 @@ class HtmlDiff(object):
             prefix=self._prefix[1])
 
         return table.replace('\0+','<span class="diff_add">'). \
-                     replace('\0-','<span class="diff_sub">'). \
-                     replace('\0^','<span class="diff_chg">'). \
-                     replace('\1','</span>'). \
-                     replace('\t','&nbsp;')
+                         replace('\0-','<span class="diff_sub">'). \
+                         replace('\0^','<span class="diff_chg">'). \
+                         replace('\1','</span>'). \
+                         replace('\t','&nbsp;')
 
 del re
 
